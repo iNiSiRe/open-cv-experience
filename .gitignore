@@ -1,0 +1,10 @@
+.idea
+cmake-build-debug
+CMakeFiles
+*.out
+*.cmake
+CMakeCache.txt
+cv
+*.cbp
+Makefile
+*.mkv
