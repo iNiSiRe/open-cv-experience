@@ -13,7 +13,13 @@ find_package( OpenCV REQUIRED )
 include_directories(cv "${OpenCV_INCLUDE_DIRS}")
 #include_directories("${FFMPEG_INCLUDE_DIRS}")
 
-add_executable( cv src/main.cpp src/tcp/TCPClient.cpp src/tcp/TCPClient.h )
+add_executable( cv src/main.cpp src/tcp/TCPClient.cpp
+        src/tcp/TCPClient.h
+        src/detector/ObjectDetector.cpp src/detector/ObjectDetector.h
+        src/detector/Object.cpp src/detector/Object.h
+        src/detector/DnnObjectDetector.cpp src/detector/DnnObjectDetector.h
+        src/detector/factory/DetectorFactory.cpp src/detector/factory/DetectorFactory.h
+        src/detector/ChangeDetector.cpp src/detector/ChangeDetector.h)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 #set(BUILD_SHARED_LIBRARIES OFF)

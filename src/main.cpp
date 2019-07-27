@@ -68,82 +68,58 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <fstream>
+#include <thread>
+#include "detector/factory/DetectorFactory.h"
+#include "detector/ChangeDetector.h"
 
 int main(int, char**)
 {
-//    auto net = cv::dnn::readNetFromTensorflow(
-//            "resources/models/ssdlite_mobilenet_v2_coco/frozen_inference_graph.pb",
-//            "resources/models/ssdlite_mobilenet_v2_coco/ssdlite_mobilenet_v2_coco.pbtxt"
-//    );
-
-        // Good results
-    auto net = cv::dnn::readNetFromCaffe(
-            "resources/models/mobilenet_ssd_1/MobileNetSSD_deploy.prototxt",
-            "resources/models/mobilenet_ssd_1/MobileNetSSD_deploy.caffemodel"
-    );
-
-//    auto net = cv::dnn::readNetFromTensorflow(
-//            "resources/models/mask_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.pb",
-//            "resources/models/mask_rcnn_inception_v2_coco_2018_01_28/mask_rcnn_inception_v2_coco_2018_01_28.pbtxt"
-//    );
-
-
-//    auto net = cv::dnn::readNetFromCaffe(
-//            "resources/models/face/ssd/res10_300x300_ssd_deploy.prototxt",
-//            "resources/models/face/ssd/res10_300x300_ssd_iter_140000.caffemodel"
-//    );
-
-//    std::string filename = "resources/models/ssdlite_mobilenet_v2_coco/classes.txt";
-
-    std::string filename = "resources/models/mobilenet_ssd_1/classes.txt";
-
-    std::ifstream input(filename.c_str());
-
-    if(!input){
-        std::cerr << "Error in opening file: " << filename << "\n";
-        return 1;
-    }
-    std::vector<std::string> words;
-    std::string line;
-
-    while(std::getline(input, line)){
-
-        words.push_back(line);
-    }
-
-    cv::HOGDescriptor hog( cv::Size(64, 128),
-                                   cv::Size(16, 16),
-                                   cv::Size(8, 8),
-                                   cv::Size(8, 8),
-                                   9,
-                                   1,
-                                   -1,
-                                   cv::HOGDescriptor::L2Hys,
-                                   0.2,
-                                   true,
-                                   cv::HOGDescriptor::DEFAULT_NLEVELS);
-
-    hog.setSVMDetector( cv::HOGDescriptor::getDefaultPeopleDetector() );
-
     long frames = 0;
 
     cv::VideoCapture vcap;
-    cv::Mat image;
-    cv::Mat result;
+    cv::VideoWriter video;
 
-    //open the video stream and make sure it's opened
-//    if(!vcap.open("rtsp://admin:pwd@127.0.0.1:8000/onvif1"))
-    if(!vcap.open("video.mkv"))
+    cv::Mat source, window, image, result, previous;
+
+//    const char *stream = "video.mkv";
+    const char *stream = "rtsp://192.168.31.246:554/user=admin_password=tlJwpbo6_channel=1_stream=0.sdp?real_stream";
+
+    if(!vcap.open(stream))
     {
         std::cout << "Error opening video stream or file" << std::endl;
         return -1;
     }
 
+    auto detector = DetectorFactory::create(DetectorFactory::Type::MOBILENET_SSD_1);
+
+    auto changesDetector = ChangeDetector();
+
+    auto changes_start = std::chrono::high_resolution_clock::now();
+    auto objects_start = std::chrono::high_resolution_clock::now() - std::chrono::seconds(30);
+
+    int remain = 0;
+    bool person = false;
+    bool write = false;
+    int videos = 0;
+
+    vector<Rect> changes;
+    std::list<Object> objects;
+
+    vcap.read(image);
+    changesDetector.setup(image);
 
     for(;;)
     {
-        if(!vcap.read(image)) {
+        if(!vcap.read(image))
+        {
             std::cout << "No frame" << std::endl;
+            
+            vcap.release();
+            
+            if(!vcap.open(stream)) {
+                std::cout << "Error opening video stream or file" << std::endl;
+                return -1;
+            }
 
             if(cv::waitKey(1) >= 0) {
                 break;
@@ -152,75 +128,154 @@ int main(int, char**)
             }
         }
 
-//        if (frames % 25 == 0) {
+        auto now = std::chrono::high_resolution_clock::now();
+        auto changes_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - changes_start).count();
+        auto objects_diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - objects_start).count();
 
-            cv::cvtColor(image, image, cv::COLOR_RGB2GRAY);
-            cv::resize(image, image, cv::Size(), 0.8, 0.8);
+        if (changes_diff > 500)
+        {
+            changes_start = now;
+            changes = changesDetector.detect(image);
 
-            std::vector<cv::Rect> rects;
-            std::vector<double> weights;
+            cout << changes.size() << endl;
+        }
 
-            hog.detectMultiScale(image, rects, weights);
+        if (objects_diff > 300000)
+        {
+            objects_start = now;
 
-            cv::rectangle(image, cv::Point(10, 10), cv::Point(10 + 64, 10 + 128), cv::Scalar(0, 0, 255), 2);
+            vector<Rect> boxes;
+            vector<float> confidences;
+            vector<Object> detections;
 
-            for (int i = 0; i < rects.size(); i++) {
+//            int size = std::min(image.rows, image.cols);
+//
+//            Mat box1 = image(cv::Rect(0, 0, size, size));
+//
+//            for (auto & object : detector->detect(box1))
+//            {
+//                objects.push_back(object);
+//            }
+//
+//            Mat box2 = image(cv::Rect(image.cols - size, image.rows - size, size, size));
+//
+//            for (auto & object : detector->detect(box2))
+//            {
+//                object.rect.x += image.cols - size;
+//                object.rect.y += image.rows - size;
+//                objects.push_back(object);
+//            }
 
-//                if (weights[i] > 0.5) {
-                    auto rect = rects[i];
-                    cv::rectangle(image, cv::Point(rect.x, rect.y), cv::Point(rect.x + rect.width, rect.y + rect.height), cv::Scalar(0, 0, 255), 2);
-                    std::string label = std::to_string(weights[i]);
-                    cv::putText(image, label, cv::Point(rect.x, rect.y + 30), cv::FONT_HERSHEY_COMPLEX, 1, cv::Scalar(255, 255, 255), 2);
-//                }
+            for (int i = 0; i < image.rows - 700; i += 50)
+            {
+                for (int j = 0; j < image.cols - 700; j += 50)
+                {
+                    int height = 700;
+                    int width = 700;
 
+                    Mat box = image(cv::Rect(j, i, width, height));
+
+                    auto detected = detector->detect(box);
+
+                    for (auto & object: detected)
+                    {
+                        object.rect.x += j;
+                        object.rect.y += i;
+
+                        detections.push_back(object);
+
+                        boxes.push_back(object.rect);
+                        confidences.push_back(object.score);
+                    }
+                }
             }
 
-//            auto blob = cv::dnn::blobFromImage(image, 0.017, cv::Size(300,300), cv::Scalar(127.5, 127.5, 127.5), true, false);
+            vector<int> indices;
+            cv::dnn::NMSBoxes(boxes, confidences, 0.5, 0.1, indices);
 
-            // For mobilenet_ssd_1 (good results)
-//            auto blob = cv::dnn::blobFromImage(image, 0.007843, cv::Size(300,300), cv::Scalar(127.5, 127.5, 127.5), false);
+            objects.clear();
 
-//            auto blob = cv::dnn::blobFromImage(image, 0.007843, cv::Size(300,300), cv::Scalar(127.5, 127.5, 127.5), false, false);
+            for (auto id : indices)
+            {
+                objects.push_back(detections[id]);
+            }
 
-//            auto blob = cv::dnn::blobFromImage(image, 1, cv::Size(300,300), cv::Scalar(104, 177, 123), false, false);
-
-//            net.setInput(blob);
-//            result = net.forward();
-
-//        for (int i = 0; i < result.size.p[2]; i++)
-//        {
-//            auto id = int ( result.at<float>(cv::Vec<int, 4> {0, 0, i, 1}) );
-//            auto confidence = result.at<float>(cv::Vec<int, 4> {0, 0, i, 2});
+//            person = false;
 //
-//            auto x0 = int ( result.at<float>(cv::Vec<int, 4> {0, 0, i, 3}) * 1280 );
-//            auto y0 = int ( result.at<float>(cv::Vec<int, 4> {0, 0, i, 4}) * 720 );
-//            auto x1 = int ( result.at<float>(cv::Vec<int, 4> {0, 0, i, 5}) * 1280 );
-//            auto y1 = int ( result.at<float>(cv::Vec<int, 4> {0, 0, i, 6}) * 720 );
+//            for (auto & object : list)
+//            {
+//                if (object.score < 0.5) {
+//                    continue;
+//                }
 //
-//            if (confidence > 0.3) {
-//                cv::rectangle(image, cv::Point(x0, y0), cv::Point(x1, y1), cv::Scalar(0, 0, 255), 2);
+//                if (object.id == 0) {
+//                    person = true;
+//                }
 //
-//                try {
+//                std::string label = object.name + " (" + std::to_string(object.score) + ")";
+//                cv::rectangle(image, object.rect, cv::Scalar(0, 0, 255), 1);
+//                cv::putText(image, label, cv::Point(object.rect.x, object.rect.y + 20), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 255, 255));
+//            }
 //
-//                    std::string label = words.at(id);
-//                    label.append("(" + std::to_string(confidence) + ")");
+//            if (!write && person)
+//            {
+//                write = true;
+//                remain = 10;
+//                videos++;
+//                video = cv::VideoWriter("out_" + std::to_string(videos) + ".avi", cv::VideoWriter::fourcc('M','J','P','G'), 1, cv::Size(1280, 720));
+//            }
 //
-//                    cv::putText(image, label, cv::Point(x0, y0 + 40), cv::FONT_HERSHEY_COMPLEX, 1, cv::Scalar(255, 255, 255), 2);
+//            if (write && !person) {
+//                remain--;
 //
-//                } catch (std::out_of_range &e) {
-//
+//                if (remain == 0) {
+//                    write = false;
+//                    video.release();
 //                }
 //            }
-//        }
+//
+//            if (write) {
+//                video.write(image);
+//            }
+        }
 
-        frames++;
+        window = image.clone();
 
-        cv::imshow("Output Window", image);
+        for (const auto & rect : changes)
+        {
+            if (rect.area() < 2000)
+            {
+                cv::rectangle(window, rect, Scalar(255, 0, 0), 2);
+            }
+            else
+            {
+                cv::rectangle(window, rect, Scalar(0, 0, 255), 2);
+            }
+        }
+
+        for (const auto & object : objects)
+        {
+            if (object.score < 0.8)
+            {
+                continue;
+            }
+
+            std::string label = object.name + " (" + std::to_string(object.score) + ")";
+            cv::rectangle(window, object.rect, cv::Scalar(0, 0, 255), 1);
+            cv::putText(window, label, cv::Point(object.rect.x, object.rect.y + 20), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 255, 255));
+        }
+
+        cv::resize(window, result, cv::Size(1280, 720));
+        cv::imshow("Output", result);
+
+        if (stream == "video.mkv")
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
 
         if(cv::waitKey(1) >= 0) {
             break;
         }
-
     }
 
 }
