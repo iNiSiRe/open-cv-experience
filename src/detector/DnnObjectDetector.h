@@ -21,17 +21,18 @@ public:
         bool crop = false;
     };
 
-private:
+protected:
     cv::dnn::Net net;
     Params params;
     std::vector<std::string> labels;
+
+    std::vector<std::string> getOutputsNames(const cv::dnn::Net& net);
 
 public:
 
     DnnObjectDetector(cv::dnn::Net &net, Params &params);
 
     std::list<Object> detect(cv::Mat image) override;
-    std::list<Object> processResult(const cv::Size& size, const std::vector<cv::Mat>& outs);
 
 };
 

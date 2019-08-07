@@ -9,6 +9,7 @@
 #include <opencv2/dnn.hpp>
 #include "../ObjectDetector.h"
 #include "../DnnObjectDetector.h"
+#include "../YoloObjectDetector.h"
 
 class DetectorFactory {
 
@@ -22,7 +23,8 @@ public:
         FACE,
         HOG,
         YOLO_V3,
-        YOLO_TINY_V3
+        YOLO_TINY_V3,
+        COCO_SSD_300
     };
 
     static ObjectDetector* create(Type type) {
@@ -38,7 +40,7 @@ public:
 
                 DnnObjectDetector::Params params {
                     "resources/models/mobilenet_ssd_1/classes.txt",
-                    0.007843,
+                    1.0 / 127.5,
                     cv::Size(300, 300),
                     cv::Scalar(127.5, 127.5, 127.5),
                     false,
@@ -159,7 +161,7 @@ public:
                         false
                 };
 
-                return new DnnObjectDetector(net, params);
+                return new YoloObjectDetector(net, params);
             } break;
 
             case YOLO_TINY_V3: {
@@ -173,14 +175,33 @@ public:
                         "resources/models/yolo/classes.txt",
                         1 / 255.0,
                         cv::Size(416,416),
-                        cv::Scalar(0, 0, 0),
+                        cv::Scalar(),
                         true,
                         false
                 };
 
-                return new DnnObjectDetector(net, params);
+                return new YoloObjectDetector(net, params);
             } break;
 
+            case COCO_SSD_300: {
+
+                auto net = cv::dnn::readNetFromCaffe(
+                        "resources/models/coco/SSD_300x300/deploy.prototxt",
+                        "resources/models/coco/SSD_300x300/model.caffemodel"
+                );
+
+                DnnObjectDetector::Params params {
+                        "resources/models/mobilenet_ssd_1/classes.txt",
+                        1.0 / 127.5,
+                        cv::Size(300, 300),
+                        cv::Scalar(127.5, 127.5, 127.5),
+                        false,
+                        false,
+                };
+
+                return new DnnObjectDetector(net, params);
+
+            } break;
         }
 
     }

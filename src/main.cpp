@@ -1,76 +1,12 @@
-//#include <iostream>
-//#include <sstream>
-
-//#include <openssl/md5.h>
-//
-//string build_digest(string user, string pwd, string realm, string method,  string uri, string nonce)
-//{
-//    ostringstream s1, s2;
-//
-//    s1 << user << ":" << realm << ":" << pwd;
-//    s2 << method << ":" << uri;
-//
-//    MD5_CTX md5handler;
-//    unsigned char md5digest[MD5_DIGEST_LENGTH];
-//
-//    MD5(in, 10, md5digest);
-////    h2 = md5("$method:$uri");
-////
-////    return md5("$h1:$nonce:$h2");
-//
-//    return "";
-//}
-
-//int main(int argc, char** argv) {
-//
-////    cv::VideoCapture * stream = new cv::VideoCapture("rtsp://192.168.31.197:554/onvif1");
-//
-//    TCPClient c;
-//    const string host = "192.168.31.197";
-//
-//    c.conn(host , 554);
-//
-//    //send some data
-//    ostringstream data;
-//
-//    cout << "----------------------------\n\n";
-//
-//    data.clear();
-//    data << "OPTIONS 192.168.31.197:554 RTSP/1.0\r\n";
-//    data << "CSeq: 1" << "\r\n";
-//    data << "User-Agent: custom" << "\r\n";
-//    data << "\r\n";
-//
-//    c.send_data(data.str());
-//    cout << c.receive(1024);
-//
-//    cout << "\n\n----------------------------\n\n";
-//
-//    cout << "----------------------------\n\n";
-//
-//    data.str(std::string());
-//    data << "DESCRIBE 192.168.31.197:554 RTSP/1.0\r\n";
-//    data << "CSeq: 2" << "\r\n";
-//    data << "User-Agent: custom" << "\r\n";
-//    data << "Accept: application/sdp" << "\r\n";
-//    data << "\r\n";
-//
-//    c.send_data(data.str());
-//    cout << c.receive(1024);
-//
-//    cout << "\n\n----------------------------\n\n";
-//
-//    return 0;
-//
-//}
-
 #include <stdio.h>
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <fstream>
 #include <thread>
+#include <future>
 #include "detector/factory/DetectorFactory.h"
 #include "detector/ChangeDetector.h"
+#include "thread/ObjectDetectorThread.h"
 
 int main(int, char**)
 {
@@ -81,7 +17,11 @@ int main(int, char**)
 
     cv::Mat source, window, image, result, previous;
 
+    cv::Mat & frame = image;
+
 //    const char *stream = "video.mkv";
+//    const char *stream = "run.mp4";
+//    const char *stream = "motor_bike.mp4";
     const char *stream = "rtsp://192.168.31.246:554/user=admin_password=tlJwpbo6_channel=1_stream=0.sdp?real_stream";
 
     if(!vcap.open(stream))
@@ -90,23 +30,36 @@ int main(int, char**)
         return -1;
     }
 
-    auto detector = DetectorFactory::create(DetectorFactory::Type::MOBILENET_SSD_1);
+    auto detector = new ObjectDetectorThread(DetectorFactory::create(DetectorFactory::Type::YOLO_V3));
 
     auto changesDetector = ChangeDetector();
 
     auto changes_start = std::chrono::high_resolution_clock::now();
     auto objects_start = std::chrono::high_resolution_clock::now() - std::chrono::seconds(30);
 
-    int remain = 0;
-    bool person = false;
-    bool write = false;
-    int videos = 0;
+    int motions_in_row = 0;
+    vector<Mat> motion_frames;
 
     vector<Rect> changes;
     std::list<Object> objects;
 
     vcap.read(image);
     changesDetector.setup(image);
+
+    auto thread = std::thread([detector] () {
+
+        std::this_thread::sleep_for( std::chrono::seconds(10) );
+        detector->run();
+        std::cout << "Detector runned!" << std::endl;
+
+    });
+
+    bool recording = false;
+    int remain = 0;
+    bool person = false;
+    bool write = false;
+    int videos = 0;
+    bool big_motion = false;
 
     for(;;)
     {
@@ -137,69 +90,58 @@ int main(int, char**)
             changes_start = now;
             changes = changesDetector.detect(image);
 
-            cout << changes.size() << endl;
-        }
-
-        if (objects_diff > 300000)
-        {
-            objects_start = now;
-
-            vector<Rect> boxes;
-            vector<float> confidences;
-            vector<Object> detections;
-
-//            int size = std::min(image.rows, image.cols);
-//
-//            Mat box1 = image(cv::Rect(0, 0, size, size));
-//
-//            for (auto & object : detector->detect(box1))
-//            {
-//                objects.push_back(object);
-//            }
-//
-//            Mat box2 = image(cv::Rect(image.cols - size, image.rows - size, size, size));
-//
-//            for (auto & object : detector->detect(box2))
-//            {
-//                object.rect.x += image.cols - size;
-//                object.rect.y += image.rows - size;
-//                objects.push_back(object);
-//            }
-
-            for (int i = 0; i < image.rows - 700; i += 50)
+            if (detector->running)
             {
-                for (int j = 0; j < image.cols - 700; j += 50)
+                std::cout << "task frame: " << image.cols << " x " << image.rows << std::endl;
+                detector->feed(image, changes);
+            }
+
+            big_motion = false;
+
+            for (const auto & rect : changes)
+            {
+                if (rect.area() >= 2000)
                 {
-                    int height = 700;
-                    int width = 700;
-
-                    Mat box = image(cv::Rect(j, i, width, height));
-
-                    auto detected = detector->detect(box);
-
-                    for (auto & object: detected)
-                    {
-                        object.rect.x += j;
-                        object.rect.y += i;
-
-                        detections.push_back(object);
-
-                        boxes.push_back(object.rect);
-                        confidences.push_back(object.score);
-                    }
+                    big_motion = true;
                 }
             }
 
-            vector<int> indices;
-            cv::dnn::NMSBoxes(boxes, confidences, 0.5, 0.1, indices);
-
-            objects.clear();
-
-            for (auto id : indices)
+            if (big_motion)
             {
-                objects.push_back(detections[id]);
+                motions_in_row++;
+                cout << "motions in row: " << motions_in_row << endl;
+            }
+            else
+            {
+                motions_in_row = 0;
+                motion_frames.clear();
             }
 
+            if (motions_in_row > 5 && !recording)
+            {
+                recording = true;
+                videos++;
+                video = cv::VideoWriter("out_" + std::to_string(videos) + ".avi", cv::VideoWriter::fourcc('M','J','P','G'), 1, cv::Size(1280, 720));
+
+                for (const auto & motion_frame : motion_frames)
+                {
+                    video.write(motion_frame);
+                }
+
+                motion_frames.clear();
+            }
+
+            if (recording && motions_in_row < 10)
+            {
+                recording = false;
+                video.release();
+            }
+
+            cout << changes.size() << endl;
+        }
+
+        if (objects_diff > 15000)
+        {
 //            person = false;
 //
 //            for (auto & object : list)
@@ -253,9 +195,19 @@ int main(int, char**)
             }
         }
 
-        for (const auto & object : objects)
+        if (big_motion && !recording)
         {
-            if (object.score < 0.8)
+            motion_frames.push_back(image.clone());
+        }
+
+        if (recording)
+        {
+            video.write(image);
+        }
+
+        for (const auto & object : detector->objects)
+        {
+            if (object.score < 0.4)
             {
                 continue;
             }
@@ -265,10 +217,11 @@ int main(int, char**)
             cv::putText(window, label, cv::Point(object.rect.x, object.rect.y + 20), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 255, 255));
         }
 
-        cv::resize(window, result, cv::Size(1280, 720));
-        cv::imshow("Output", result);
+        cv::resize(window, window, cv::Size(1280, 720));
 
-        if (stream == "video.mkv")
+        cv::imshow("Output", window);
+
+        if (stream == "video.mkv" || stream == "run.mp4")
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
         }

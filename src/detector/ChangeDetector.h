@@ -150,25 +150,23 @@ public:
     const int BOX_SIZE = 1;
     const float SCALE = 0.7;
 
-    map<int, map<int, int>> blur_map;
+    struct AreaOptions {
+        int motions = 0;
+        int blur = 0;
+    };
+
+    list<pair<Rect, AreaOptions>> map;
 
     Mat base;
 
     void blur(Mat & image)
     {
-        int width = image.cols / 10;
-        int height = image.rows / 10;
-
-        for (int i = 0; i < image.rows; i += height)
+        for (const auto & pair : map)
         {
-            for (int j = 0; j < image.cols; j += width)
-            {
-                int blur = blur_map[i / height][j / width];
-
-                Rect rect(j, i, width, height);
-
-                cv::GaussianBlur(image(rect), image(rect), Size(blur, blur), 0);
-            }
+            auto rect = pair.first;
+            int blur = pair.second.blur;
+            cv::GaussianBlur(image(rect), image(rect), Size(blur, blur), 0);
+//            cv::putText(image(rect), std::to_string(pair.second.motions), Point(10, 10), cv::FONT_HERSHEY_COMPLEX_SMALL, 1, Scalar(255, 255, 255));
         }
 
         cv::imshow("blur", image);
@@ -178,26 +176,19 @@ public:
     {
         float scale = 1280.0 / image.cols;
 
-        std::random_device rd;
-        std::mt19937 rng(rd());
-        std::uniform_int_distribution<int> uni(10, 100);
+        cv::resize(image, base, Size(), scale, scale);
 
-        for (int i = 0; i < 50; i++)
+        int width = base.cols / 20;
+        int height = base.rows / 10;
+
+        for (int i = 0; i < base.rows; i += height)
         {
-            for (int j = 0; j < 50; j++)
+            for (int j = 0; j < base.cols; j += width)
             {
-                int random = uni(rng);
-
-                if (random % 2 != 1)
-                {
-                    random++;
-                }
-
-                blur_map[i][j] = random;
+                map.emplace_back(Rect(j, i, width, height), AreaOptions{0, 3});
             }
         }
 
-        cv::resize(image, base, Size(), scale, scale);
         cv::cvtColor(base, base, cv::COLOR_BGR2GRAY);
         blur(base);
     }
@@ -221,16 +212,38 @@ public:
         cv::dilate(processing, processing, Mat());
         cv::findContours(processing, contours, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
 
-        for (auto & contour : contours)
+        for (const auto & contour : contours)
         {
             auto rect = cv::boundingRect(contour);
+            list.push_back(rect);
+        }
 
+        for (auto & pair: map)
+        {
+            int motions = 0;
+
+            for (const auto & rect : list)
+            {
+                if ((rect & pair.first) == rect)
+                {
+                    motions++;
+                }
+            }
+
+            pair.second.motions = motions;
+
+            if (motions > 0)
+            {
+                pair.second.blur += 2;
+            }
+        }
+
+        for (auto & rect : list)
+        {
             rect.x /= scale;
             rect.y /= scale;
             rect.width /= scale;
             rect.height /= scale;
-
-            list.push_back(rect);
         }
 
         this->base = current.clone();

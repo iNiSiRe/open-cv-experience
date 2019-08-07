@@ -8,9 +8,11 @@
 
 #include <list>
 #include <opencv2/core/mat.hpp>
+#include <thread>
 #include "Object.h"
 
-class ObjectDetector {
+class ObjectDetector
+{
 
 public:
 
