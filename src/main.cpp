@@ -1,12 +1,10 @@
-#include <stdio.h>
 #include <opencv2/opencv.hpp>
 #include <iostream>
-#include <fstream>
 #include <thread>
-#include <future>
 #include "detector/factory/DetectorFactory.h"
 #include "detector/ChangeDetector.h"
 #include "thread/ObjectDetectorThread.h"
+#include "recorder/VideoRecorder.h"
 
 int main(int, char**)
 {
@@ -46,10 +44,13 @@ int main(int, char**)
     vcap.read(image);
     changesDetector.setup(image);
 
-    auto thread = std::thread([detector] () {
+    auto recorder = new VideoRecorder(image);
+
+    auto thread = std::thread([detector, recorder] () {
 
         std::this_thread::sleep_for( std::chrono::seconds(10) );
-        detector->run();
+        // detector->run();
+        recorder->start();
         std::cout << "Detector runned!" << std::endl;
 
     });
@@ -69,12 +70,14 @@ int main(int, char**)
             
             vcap.release();
             
-            if(!vcap.open(stream)) {
+            if(!vcap.open(stream)) 
+            {
                 std::cout << "Error opening video stream or file" << std::endl;
                 return -1;
             }
 
-            if(cv::waitKey(1) >= 0) {
+            if(cv::waitKey(1) == 27) 
+            {
                 break;
             } else {
                 continue;
@@ -117,11 +120,11 @@ int main(int, char**)
                 motion_frames.clear();
             }
 
-            if (motions_in_row > 5 && !recording)
+            if (motions_in_row >= 3 && !recording)
             {
                 recording = true;
                 videos++;
-                video = cv::VideoWriter("out_" + std::to_string(videos) + ".avi", cv::VideoWriter::fourcc('M','J','P','G'), 1, cv::Size(1280, 720));
+                video = cv::VideoWriter("out_" + std::to_string(videos) + ".avi", cv::VideoWriter::fourcc('M','J','P','G'), 15, cv::Size(1920, 1080));
 
                 for (const auto & motion_frame : motion_frames)
                 {
@@ -131,7 +134,7 @@ int main(int, char**)
                 motion_frames.clear();
             }
 
-            if (recording && motions_in_row < 10)
+            if (recording && motions_in_row < 3)
             {
                 recording = false;
                 video.release();
@@ -226,7 +229,7 @@ int main(int, char**)
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
         }
 
-        if(cv::waitKey(1) >= 0) {
+        if(cv::waitKey(1) == 27) {
             break;
         }
     }

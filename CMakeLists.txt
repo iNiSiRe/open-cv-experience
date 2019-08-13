@@ -21,7 +21,7 @@ add_executable( cv src/main.cpp
         src/detector/factory/DetectorFactory.cpp src/detector/factory/DetectorFactory.h
         src/detector/ChangeDetector.cpp src/detector/ChangeDetector.h
         src/thread/ObjectDetectorThread.cpp src/thread/ObjectDetectorThread.h
-        src/detector/YoloObjectDetector.cpp src/detector/YoloObjectDetector.h)
+        src/detector/YoloObjectDetector.cpp src/detector/YoloObjectDetector.h src/recorder/VideoRecorder.cpp src/recorder/VideoRecorder.h)
 
 #set(BUILD_SHARED_LIBRARIES OFF)
 
