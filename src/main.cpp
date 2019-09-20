@@ -122,16 +122,16 @@ int main(int, char**)
 
             if (motions_in_row >= 3 && !recording)
             {
-                recording = true;
-                videos++;
-                video = cv::VideoWriter("out_" + std::to_string(videos) + ".avi", cv::VideoWriter::fourcc('M','J','P','G'), 15, cv::Size(1920, 1080));
-
-                for (const auto & motion_frame : motion_frames)
-                {
-                    video.write(motion_frame);
-                }
-
-                motion_frames.clear();
+//                recording = true;
+//                videos++;
+//                video = cv::VideoWriter("out_" + std::to_string(videos) + ".avi", cv::VideoWriter::fourcc('M','J','P','G'), 15, cv::Size(1920, 1080));
+//
+//                for (const auto & motion_frame : motion_frames)
+//                {
+//                    video.write(motion_frame);
+//                }
+//
+//                motion_frames.clear();
             }
 
             if (recording && motions_in_row < 3)

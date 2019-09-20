@@ -11,75 +11,119 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/videoio.hpp>
 #include <ctime>
+#include <queue>
+#include <iostream>
+
+using namespace std;
+using namespace cv;
 
 class VideoRecorder {
 
 private:
-    const cv::Mat & frame;
+    const cv::Mat & screen;
     int count = 0;
-    cv::VideoWriter writer;
     bool running = false;
     std::thread thread;
-    int started_at;
+    int started_at = 0;
+
+    std::queue<cv::Mat> queue;
+
+    std::mutex mtx;
+    std::condition_variable cv;
 
 public:
-    explicit VideoRecorder(const cv::Mat & frame) : frame(frame), thread() {}
-
+    explicit VideoRecorder(const cv::Mat & screen) : screen(screen), thread() {}
+    
     void loop()
     {
+        cout << "Start recorder" << endl;
+
+        std::thread local_thread;
+        
         while(running)
         {
-            std::time_t result = std::time(nullptr);
-            auto tm = std::localtime(&result);
+            cout << "Start minute thread" << endl;
 
-            if (!writer.isOpened())
+            local_thread = std::thread([this]
             {
-                continue;
-            }
+                std::time_t result = std::time(nullptr);
+                auto tm = std::localtime(&result);
 
-            if (tm->tm_min > started_at)
-            {
-                writer.release();
-            
+                int minutes = tm->tm_min;
+                int seconds = tm->tm_sec;
+
+                cv::VideoWriter writer;
+
+                const std::string &filename = "out_" + std::to_string(minutes) + ".mkv";
+
+                cout << "Start video " << filename << endl;
+
                 writer.open(
-                    "out_" + std::to_string(tm->tm_min) + ".avi",
-                    cv::VideoWriter::fourcc('H','2','6','4'),
-                    5,
-                    cv::Size(1920, 1080)
+                        filename,
+                        cv::VideoWriter::fourcc('H','2','6','4'),
+                        // cv::VideoWriter::fourcc('M','J','P','G'),
+                        5,
+                        cv::Size(1920, 1080)
                 );
 
-                started_at = tm->tm_min;
-            }
+                int count = seconds * 5;
 
-            writer.write(frame);
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                while (count < 300)
+                {
+                    unique_lock<mutex> lock(mtx);
+
+                    while (queue.empty())
+                    {
+                        cout << "Wait for frame" << endl;
+                        cv.wait(lock);
+                    }
+
+                    cout << "Write frame" << endl;
+
+                    writer.write(queue.front());
+                    queue.pop();
+
+                    lock.unlock();
+
+                    count++;
+                }
+
+                cout << "Release video " << filename << endl;
+
+                writer.release();
+            });
+
+            local_thread.join();
+//            std::this_thread::sleep_for(std::chrono::seconds(60 - seconds));
         }
     }
 
     void start()
     {
-        std::time_t result = std::time(nullptr);
-        auto tm = std::localtime(&result);
-        started_at = tm->tm_min;
-
         running = true;
-        count++;
-
-        writer.open(
-                "out_" + std::to_string(tm->tm_min) + ".avi",
-                cv::VideoWriter::fourcc('H','2','6','4'),
-                // cv::VideoWriter::fourcc('M','J','P','G'),
-                5,
-                cv::Size(1920, 1080)
-        );
-
         thread = std::thread(&VideoRecorder::loop, this);
+
+        auto producer = std::thread([this]
+        {
+            while (running)
+            {
+                cout << "Write frame to queue" << endl;
+
+                unique_lock<mutex> lock(mtx);
+                queue.push(screen.clone());
+                cv.notify_one();
+                lock.unlock();
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+        });
+
+        producer.detach();
     };
 
     void stop()
     {
         running = false;
-        writer.release();
     }
 
     bool isRunning() const {
